@@ -22,15 +22,15 @@ META_PATH = os.path.join(MODEL_DIR, "model_meta.pkl")
 
 NUMERIC_FEATURES = ["size_m2", "rooms", "bathrooms", "floor"]
 BOOLEAN_FEATURES = ["has_elevator", "is_exterior", "has_parking"]
-CATEGORICAL_FEATURES = ["district"]
+CATEGORICAL_FEATURES = ["district", "neighborhood"]
 ALL_FEATURES = NUMERIC_FEATURES + BOOLEAN_FEATURES + CATEGORICAL_FEATURES
 
 
-def _build_pipeline(districts: list[str]) -> Pipeline:
+def _build_pipeline(districts: list[str], neighborhoods: list[str]) -> Pipeline:
     """Build the sklearn pipeline with preprocessing and model."""
     numeric_transformer = StandardScaler()
     categorical_transformer = OneHotEncoder(
-        categories=[districts], handle_unknown="infrequent_if_exist", sparse_output=False
+        categories=[districts, neighborhoods], handle_unknown="infrequent_if_exist", sparse_output=False
     )
 
     preprocessor = ColumnTransformer(
@@ -67,8 +67,16 @@ def train_model(df: pd.DataFrame) -> dict:
     X = df[ALL_FEATURES].copy()
     y = df["price"].values
 
-    # Get sorted district list for consistent encoding
+    # Get sorted category lists for consistent encoding
     districts = sorted(X["district"].unique().tolist())
+    neighborhoods = sorted(X["neighborhood"].unique().tolist())
+
+    # Build district -> neighborhoods mapping
+    district_neighborhoods = (
+        df.groupby("district")["neighborhood"]
+        .apply(lambda x: sorted(x.unique().tolist()))
+        .to_dict()
+    )
 
     # Compute training medians/modes for imputation at prediction time
     feature_defaults = {}
@@ -77,6 +85,7 @@ def train_model(df: pd.DataFrame) -> dict:
     for col in BOOLEAN_FEATURES:
         feature_defaults[col] = int(X[col].mode().iloc[0]) if len(X[col].mode()) > 0 else 0
     feature_defaults["district"] = X["district"].mode().iloc[0] if len(X["district"].mode()) > 0 else districts[0]
+    feature_defaults["neighborhood"] = X["neighborhood"].mode().iloc[0] if len(X["neighborhood"].mode()) > 0 else neighborhoods[0]
 
     # Train/test split
     X_train, X_test, y_train, y_test = train_test_split(
@@ -84,7 +93,7 @@ def train_model(df: pd.DataFrame) -> dict:
     )
 
     # Build and train
-    pipeline = _build_pipeline(districts)
+    pipeline = _build_pipeline(districts, neighborhoods)
     pipeline.fit(X_train, y_train)
 
     # Evaluate
@@ -102,6 +111,8 @@ def train_model(df: pd.DataFrame) -> dict:
     joblib.dump({
         "feature_defaults": feature_defaults,
         "districts": districts,
+        "neighborhoods": neighborhoods,
+        "district_neighborhoods": district_neighborhoods,
         "metrics": metrics,
         "features": ALL_FEATURES,
     }, META_PATH)
@@ -146,6 +157,7 @@ def predict_price(user_input: dict) -> dict:
     for col in BOOLEAN_FEATURES:
         row[col] = int(row[col])
     row["district"] = str(row["district"])
+    row["neighborhood"] = str(row["neighborhood"])
 
     X = pd.DataFrame([row])
     predicted_price = float(pipeline.predict(X)[0])

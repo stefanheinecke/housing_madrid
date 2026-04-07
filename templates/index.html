@@ -178,6 +178,14 @@
                             </select>
                         </div>
 
+                        <!-- Neighborhood -->
+                        <div class="mb-3">
+                            <label for="neighborhood" class="form-label">Neighborhood</label>
+                            <select class="form-select" id="neighborhood" name="neighborhood" disabled>
+                                <option value="">-- Select a district first --</option>
+                            </select>
+                        </div>
+
                         <!-- Toggles -->
                         <div class="row mb-3">
                             <div class="col-4">
@@ -289,6 +297,9 @@ document.getElementById("predictForm").addEventListener("submit", async function
     const district = document.getElementById("district").value;
     if (district) formData["district"] = district;
 
+    const neighborhood = document.getElementById("neighborhood").value;
+    if (neighborhood) formData["neighborhood"] = neighborhood;
+
     // Need at least size_m2
     if (Object.keys(formData).filter(k => !boolFields.includes(k)).length === 0) {
         errorAlert.textContent = "Please enter at least one property detail (e.g. size in m²).";
@@ -338,6 +349,33 @@ document.getElementById("predictForm").addEventListener("submit", async function
     } finally {
         spinner.classList.remove("active");
     }
+});
+
+// District -> Neighborhood cascading dropdown
+const districtNeighborhoods = {{ district_neighborhoods | tojson }};
+
+document.getElementById("district").addEventListener("change", function() {
+    const neighborhoodSelect = document.getElementById("neighborhood");
+    const selectedDistrict = this.value;
+
+    // Clear existing options
+    neighborhoodSelect.innerHTML = "";
+
+    if (!selectedDistrict) {
+        neighborhoodSelect.innerHTML = '<option value="">-- Select a district first --</option>';
+        neighborhoodSelect.disabled = true;
+        return;
+    }
+
+    const neighborhoods = districtNeighborhoods[selectedDistrict] || [];
+    neighborhoodSelect.innerHTML = '<option value="">-- Any neighborhood (use default) --</option>';
+    neighborhoods.forEach(n => {
+        const opt = document.createElement("option");
+        opt.value = n;
+        opt.textContent = n;
+        neighborhoodSelect.appendChild(opt);
+    });
+    neighborhoodSelect.disabled = false;
 });
 </script>
 

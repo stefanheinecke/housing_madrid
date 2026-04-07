@@ -50,16 +50,22 @@ def index():
     try:
         _, meta = load_model()
         districts = meta["districts"]
+        neighborhoods = meta["neighborhoods"]
+        district_neighborhoods = meta["district_neighborhoods"]
         defaults = meta["feature_defaults"]
         metrics = meta["metrics"]
     except FileNotFoundError:
         districts = []
+        neighborhoods = []
+        district_neighborhoods = {}
         defaults = {}
         metrics = {}
 
     return render_template(
         "index.html",
         districts=districts,
+        neighborhoods=neighborhoods,
+        district_neighborhoods=district_neighborhoods,
         defaults=defaults,
         metrics=metrics,
         model_loading=model_loading,
@@ -94,6 +100,8 @@ def api_predict():
                 except (ValueError, TypeError):
                     return jsonify({"error": f"Invalid value for '{key}'"}), 400
             elif key == "district":
+                val = str(val).strip()
+            elif key == "neighborhood":
                 val = str(val).strip()
             user_input[key] = val
 

@@ -1,7 +1,9 @@
 """
 Data loader for Madrid housing data.
 
-Primary source: Kaggle dataset "mirbektoktogaraev/madrid-real-estate-market"
+Primary sources:
+  1. Kaggle "mirbektoktogaraev/madrid-real-estate-market" (~21k listings, 2018)
+  2. Kaggle "kanchana1990/madrid-idealista-property-listings" (~900 listings, more recent)
 Fallback: synthetic data generator for development/demo purposes.
 """
 
@@ -20,7 +22,40 @@ def download_kaggle_dataset() -> str:
     """
     import kagglehub
 
-    # Check that Kaggle credentials are available before attempting download
+    try:
+        path = kagglehub.dataset_download("mirbektoktogaraev/madrid-real-estate-market")
+    except Exception:
+        _check_kaggle_credentials()
+        raise
+    # The download returns a directory; find the CSV inside
+    for root, _dirs, files in os.walk(path):
+        for f in files:
+            if f.endswith(".csv"):
+                return os.path.join(root, f)
+    raise FileNotFoundError(f"No CSV found in downloaded dataset at {path}")
+
+
+def download_idealista_dataset() -> str:
+    """Download Idealista Madrid listings dataset from Kaggle.
+
+    Returns the path to the downloaded CSV file.
+    """
+    import kagglehub
+
+    try:
+        path = kagglehub.dataset_download("kanchana1990/madrid-idealista-property-listings")
+    except Exception:
+        _check_kaggle_credentials()
+        raise
+    for root, _dirs, files in os.walk(path):
+        for f in files:
+            if f.endswith(".csv"):
+                return os.path.join(root, f)
+    raise FileNotFoundError(f"No CSV found in downloaded dataset at {path}")
+
+
+def _check_kaggle_credentials():
+    """Raise if Kaggle credentials are not available."""
     kaggle_username = os.environ.get("KAGGLE_USERNAME") or os.environ.get("KAGGLE_KEY")
     kaggle_json = os.path.expanduser("~/.kaggle/kaggle.json")
     if not kaggle_username and not os.path.exists(kaggle_json):
@@ -28,14 +63,6 @@ def download_kaggle_dataset() -> str:
             "Kaggle credentials not found. Set KAGGLE_USERNAME and KAGGLE_KEY "
             "environment variables, or place kaggle.json in ~/.kaggle/"
         )
-
-    path = kagglehub.dataset_download("mirbektoktogaraev/madrid-real-estate-market")
-    # The download returns a directory; find the CSV inside
-    for root, _dirs, files in os.walk(path):
-        for f in files:
-            if f.endswith(".csv"):
-                return os.path.join(root, f)
-    raise FileNotFoundError(f"No CSV found in downloaded dataset at {path}")
 
 
 def load_kaggle_data() -> pd.DataFrame:
@@ -139,6 +166,153 @@ def _extract_neighborhood(neighborhood_id):
     return "Unknown"
 
 
+# Mapping from Idealista address names to (district, neighborhood).
+# Addresses that match a neighborhood name directly.
+_NEIGHBORHOOD_TO_DISTRICT = {
+    "Acacias": "Arganzuela", "Chopera": "Arganzuela", "Delicias": "Arganzuela",
+    "Imperial": "Arganzuela", "Legazpi": "Arganzuela", "Palos de Moguer": "Arganzuela",
+    "Alameda de Osuna": "Barajas", "Campo de las Naciones-Corralejos": "Barajas",
+    "Casco Histórico de Barajas": "Barajas", "Timón": "Barajas",
+    "Abrantes": "Carabanchel", "Buena Vista": "Carabanchel", "Comillas": "Carabanchel",
+    "Opañel": "Carabanchel", "Pau de Carabanchel": "Carabanchel",
+    "Puerta Bonita": "Carabanchel", "San Isidro": "Carabanchel", "Vista Alegre": "Carabanchel",
+    "Chueca-Justicia": "Centro", "Huertas-Cortes": "Centro",
+    "Lavapiés-Embajadores": "Centro", "Malasaña-Universidad": "Centro",
+    "Palacio": "Centro", "Sol": "Centro",
+    "Bernabéu-Hispanoamérica": "Chamartín", "Castilla": "Chamartín",
+    "Ciudad Jardín": "Chamartín", "El Viso": "Chamartín",
+    "Nueva España": "Chamartín", "Prosperidad": "Chamartín",
+    "Almagro": "Chamberí", "Arapiles": "Chamberí", "Gaztambide": "Chamberí",
+    "Nuevos Ministerios-Ríos Rosas": "Chamberí", "Trafalgar": "Chamberí",
+    "Vallehermoso": "Chamberí",
+    "Atalaya": "Ciudad Lineal", "Colina": "Ciudad Lineal",
+    "Concepción": "Ciudad Lineal", "Costillares": "Ciudad Lineal",
+    "Pueblo Nuevo": "Ciudad Lineal", "Quintana": "Ciudad Lineal",
+    "San Juan Bautista": "Ciudad Lineal", "San Pascual": "Ciudad Lineal",
+    "Ventas": "Ciudad Lineal",
+    "Arroyo del Fresno": "Fuencarral", "El Pardo": "Fuencarral",
+    "Fuentelarreina": "Fuencarral", "La Paz": "Fuencarral",
+    "Las Tablas": "Fuencarral", "Mirasierra": "Fuencarral",
+    "Montecarmelo": "Fuencarral", "Peñagrande": "Fuencarral",
+    "Pilar": "Fuencarral", "Tres Olivos - Valverde": "Fuencarral",
+    "Apóstol Santiago": "Hortaleza", "Canillas": "Hortaleza",
+    "Conde Orgaz-Piovera": "Hortaleza", "Palomas": "Hortaleza",
+    "Pinar del Rey": "Hortaleza", "Sanchinarro": "Hortaleza",
+    "Valdebebas - Valdefuentes": "Hortaleza",
+    "Virgen del Cortijo - Manoteras": "Hortaleza",
+    "Aluche": "Latina", "Campamento": "Latina", "Cuatro Vientos": "Latina",
+    "Los Cármenes": "Latina", "Lucero": "Latina",
+    "Puerta del Ángel": "Latina", "Águilas": "Latina",
+    "Aravaca": "Moncloa", "Argüelles": "Moncloa", "Casa de Campo": "Moncloa",
+    "Ciudad Universitaria": "Moncloa", "El Plantío": "Moncloa",
+    "Valdemarín": "Moncloa", "Valdezarza": "Moncloa",
+    "Fontarrón": "Moratalaz", "Horcajo": "Moratalaz", "Marroquina": "Moratalaz",
+    "Media Legua": "Moratalaz", "Pavones": "Moratalaz", "Vinateros": "Moratalaz",
+    "Entrevías": "Puente de Vallecas", "Numancia": "Puente de Vallecas",
+    "Palomeras Bajas": "Puente de Vallecas", "Palomeras sureste": "Puente de Vallecas",
+    "Portazgo": "Puente de Vallecas", "San Diego": "Puente de Vallecas",
+    "Adelfas": "Retiro", "Estrella": "Retiro", "Ibiza": "Retiro",
+    "Jerónimos": "Retiro", "Niño Jesús": "Retiro", "Pacífico": "Retiro",
+    "Castellana": "Salamanca", "Fuente del Berro": "Salamanca",
+    "Goya": "Salamanca", "Guindalera": "Salamanca",
+    "Lista": "Salamanca", "Recoletos": "Salamanca",
+    "Bellas Vistas": "Tetuán", "Berruguete": "Tetuán",
+    "Cuatro Caminos": "Tetuán", "Cuzco-Castillejos": "Tetuán",
+    "Valdeacederas": "Tetuán", "Ventilla-Almenara": "Tetuán",
+    "12 de Octubre-Orcasur": "Usera", "Almendrales": "Usera",
+    "Moscardó": "Usera", "Orcasitas": "Usera", "Pradolongo": "Usera",
+    "San Fermín": "Usera", "Zofío": "Usera",
+    "Ambroz": "Vicálvaro", "Casco Histórico de Vicálvaro": "Vicálvaro",
+    "El Cañaveral - Los Berrocales": "Vicálvaro",
+    "Valdebernardo - Valderribas": "Vicálvaro",
+    "Casco Histórico de Vallecas": "Villa de Vallecas",
+    "Ensanche de Vallecas - La Gavia": "Villa de Vallecas",
+    "Santa Eugenia": "Villa de Vallecas",
+    "Butarque": "Villaverde", "Los Rosales": "Villaverde",
+    "Los Ángeles": "Villaverde", "San Andrés": "Villaverde",
+    "San Cristóbal": "Villaverde",
+}
+
+# Addresses that are district names (resolve to district, neighborhood="Unknown")
+_DISTRICT_ALIASES = {
+    "Barrio de Salamanca": "Salamanca",
+    "Arganzuela": "Arganzuela", "Barajas": "Barajas",
+    "Carabanchel": "Carabanchel", "Centro": "Centro",
+    "Chamartín": "Chamartín", "Chamberí": "Chamberí",
+    "Ciudad Lineal": "Ciudad Lineal", "Fuencarral": "Fuencarral",
+    "Hortaleza": "Hortaleza", "Latina": "Latina", "Moncloa": "Moncloa",
+    "Moratalaz": "Moratalaz", "Puente de Vallecas": "Puente de Vallecas",
+    "Retiro": "Retiro", "Salamanca": "Salamanca", "Tetuán": "Tetuán",
+    "Usera": "Usera", "Vicálvaro": "Vicálvaro",
+    "Villa de Vallecas": "Villa de Vallecas", "Villaverde": "Villaverde",
+}
+
+
+def _resolve_idealista_address(address: str) -> tuple[str, str]:
+    """Map an Idealista address to (district, neighborhood).
+
+    Returns ("Unknown", "Unknown") if unmappable.
+    """
+    name = str(address).replace(", Madrid", "").strip()
+
+    # Direct neighborhood match
+    if name in _NEIGHBORHOOD_TO_DISTRICT:
+        return (_NEIGHBORHOOD_TO_DISTRICT[name], name)
+
+    # District-level match
+    if name in _DISTRICT_ALIASES:
+        return (_DISTRICT_ALIASES[name], "Unknown")
+
+    return ("Unknown", "Unknown")
+
+
+def load_idealista_data() -> pd.DataFrame:
+    """Load and clean the Idealista Madrid property listings dataset."""
+    csv_path = download_idealista_dataset()
+    df = pd.read_csv(csv_path)
+
+    # Map address -> district + neighborhood
+    resolved = df["address"].apply(_resolve_idealista_address)
+    df["district"] = resolved.apply(lambda x: x[0])
+    df["neighborhood"] = resolved.apply(lambda x: x[1])
+
+    # Rename columns to match our schema
+    # Note: 'sqft' in this dataset is actually square meters (Idealista uses m²)
+    df = df.rename(columns={
+        "sqft": "size_m2",
+        "baths": "bathrooms",
+    })
+
+    # Add missing boolean columns with NaN (will be filled later)
+    df["has_elevator"] = np.nan
+    df["is_exterior"] = np.nan
+    df["has_parking"] = np.nan
+    df["floor"] = np.nan
+    df["house_type_id"] = df["typology"].map({
+        "Pisos": "HouseType 1: Pisos",
+        "Independientes": "HouseType 2: Independientes",
+    })
+
+    # Keep only columns matching our schema
+    keep_cols = [
+        "price", "size_m2", "rooms", "bathrooms",
+        "has_elevator", "is_exterior", "has_parking", "floor",
+        "house_type_id", "district", "neighborhood",
+    ]
+    df = df[[c for c in keep_cols if c in df.columns]].copy()
+
+    # Drop rows without price or size, and remove outliers
+    df = df.dropna(subset=["price", "size_m2"])
+    df = df[(df["price"] >= 10_000) & (df["price"] <= 10_000_000)]
+    df = df[(df["size_m2"] >= 15) & (df["size_m2"] <= 2000)]
+
+    # Drop rows that couldn't be mapped to a known district
+    df = df[df["district"] != "Unknown"]
+
+    df = df.reset_index(drop=True)
+    return df
+
+
 def generate_synthetic_data(n_samples: int = 5000, seed: int = 42) -> pd.DataFrame:
     """Generate synthetic Madrid housing data for development/demo."""
     rng = np.random.default_rng(seed)
@@ -223,8 +397,22 @@ def load_data(force_synthetic: bool = False) -> pd.DataFrame:
     if not force_synthetic:
         try:
             df = load_kaggle_data()
+            print(f"✓ Loaded {len(df)} records from main Kaggle dataset")
+
+            # Try to merge Idealista data
+            try:
+                df_ideal = load_idealista_data()
+                # Fill missing boolean/floor columns with medians from main dataset
+                for col in ["has_elevator", "is_exterior", "has_parking", "floor"]:
+                    if col in df.columns:
+                        median_val = df[col].median()
+                        df_ideal[col] = df_ideal[col].fillna(median_val)
+                df = pd.concat([df, df_ideal], ignore_index=True)
+                print(f"✓ Added {len(df_ideal)} Idealista records → {len(df)} total")
+            except Exception as e:
+                print(f"⚠ Could not load Idealista data: {e}")
+
             df.to_csv(cached, index=False)
-            print(f"✓ Loaded {len(df)} records from Kaggle dataset")
             return df
         except Exception as e:
             print(f"⚠ Could not load Kaggle data: {e}")
