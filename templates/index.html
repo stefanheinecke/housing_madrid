@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Madrid Housing Price Predictor</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #1a5276;
+            --accent: #e74c3c;
+            --bg: #f8f9fa;
+        }
+        body {
+            background: var(--bg);
+            font-family: 'Segoe UI', system-ui, sans-serif;
+        }
+        .hero {
+            background: linear-gradient(135deg, var(--primary), #2e86c1);
+            color: white;
+            padding: 2.5rem 0 2rem;
+            margin-bottom: 2rem;
+        }
+        .hero h1 { font-weight: 700; }
+        .hero .subtitle { opacity: 0.85; font-size: 1.1rem; }
+        .card {
+            border: none;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+            border-radius: 12px;
+        }
+        .card-header {
+            background: var(--primary);
+            color: white;
+            border-radius: 12px 12px 0 0 !important;
+            font-weight: 600;
+        }
+        .form-label { font-weight: 500; color: #555; font-size: 0.9rem; }
+        .form-check-label { font-weight: 400; }
+        .btn-predict {
+            background: var(--accent);
+            border: none;
+            color: white;
+            font-weight: 600;
+            font-size: 1.1rem;
+            padding: 0.7rem 2rem;
+            border-radius: 8px;
+            transition: background 0.2s;
+        }
+        .btn-predict:hover { background: #c0392b; color: white; }
+        .result-card {
+            background: linear-gradient(135deg, #27ae60, #2ecc71);
+            color: white;
+            border-radius: 12px;
+            padding: 2rem;
+            text-align: center;
+        }
+        .result-card .price { font-size: 2.5rem; font-weight: 700; }
+        .result-card .range { opacity: 0.9; font-size: 1rem; }
+        .result-card .price-m2 { font-size: 1.1rem; margin-top: 0.5rem; }
+        .defaults-info {
+            background: #fff3cd;
+            border-radius: 8px;
+            padding: 0.8rem 1rem;
+            font-size: 0.85rem;
+            color: #856404;
+            margin-top: 1rem;
+        }
+        .metric-badge {
+            display: inline-block;
+            background: rgba(255,255,255,0.15);
+            border-radius: 6px;
+            padding: 0.3rem 0.8rem;
+            margin: 0.2rem;
+            font-size: 0.85rem;
+        }
+        .spinner-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.3);
+            z-index: 9999;
+            justify-content: center;
+            align-items: center;
+        }
+        .spinner-overlay.active { display: flex; }
+        .toggle-switch {
+            cursor: pointer;
+            user-select: none;
+        }
+        #errorAlert {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+<!-- Loading spinner -->
+<div class="spinner-overlay" id="spinner">
+    <div class="spinner-border text-light" style="width: 3rem; height: 3rem;" role="status">
+        <span class="visually-hidden">Calculating...</span>
+    </div>
+</div>
+
+<!-- Hero -->
+<div class="hero">
+    <div class="container text-center">
+        <h1>🏠 Madrid Housing Price Predictor</h1>
+        <p class="subtitle">AI-powered fair value estimation for apartments and houses in Madrid</p>
+        {% if metrics %}
+        <div class="mt-2">
+            <span class="metric-badge">R² = {{ metrics.r2 }}</span>
+            <span class="metric-badge">MAE = €{{ "{:,.0f}".format(metrics.mae) }}</span>
+            <span class="metric-badge">MAPE = {{ metrics.mape }}%</span>
+            <span class="metric-badge">{{ "{:,}".format(metrics.n_train + metrics.n_test) }} properties</span>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="container mb-5">
+    <div class="row g-4">
+        <!-- Input Form -->
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header py-3">
+                    <span class="me-2">📋</span> Property Details
+                </div>
+                <div class="card-body p-4">
+                    <form id="predictForm">
+                        <!-- Size -->
+                        <div class="mb-3">
+                            <label for="size_m2" class="form-label">Size (m²)</label>
+                            <input type="number" class="form-control" id="size_m2" name="size_m2"
+                                   placeholder="e.g. 80" min="15" max="1000" step="1">
+                        </div>
+
+                        <!-- Rooms & Bathrooms -->
+                        <div class="row">
+                            <div class="col-6 mb-3">
+                                <label for="rooms" class="form-label">Rooms</label>
+                                <input type="number" class="form-control" id="rooms" name="rooms"
+                                       placeholder="e.g. 3" min="1" max="15" step="1">
+                            </div>
+                            <div class="col-6 mb-3">
+                                <label for="bathrooms" class="form-label">Bathrooms</label>
+                                <input type="number" class="form-control" id="bathrooms" name="bathrooms"
+                                       placeholder="e.g. 2" min="1" max="8" step="1">
+                            </div>
+                        </div>
+
+                        <!-- Floor -->
+                        <div class="mb-3">
+                            <label for="floor" class="form-label">Floor</label>
+                            <input type="number" class="form-control" id="floor" name="floor"
+                                   placeholder="e.g. 3 (0 = ground floor)" min="0" max="30" step="1">
+                        </div>
+
+                        <!-- District -->
+                        <div class="mb-3">
+                            <label for="district" class="form-label">District</label>
+                            <select class="form-select" id="district" name="district">
+                                <option value="">-- Any district (use default) --</option>
+                                {% for d in districts %}
+                                <option value="{{ d }}">{{ d }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <!-- Toggles -->
+                        <div class="row mb-3">
+                            <div class="col-4">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="has_elevator" name="has_elevator">
+                                    <label class="form-check-label toggle-switch" for="has_elevator">Elevator</label>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="is_exterior" name="is_exterior">
+                                    <label class="form-check-label toggle-switch" for="is_exterior">Exterior</label>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="has_parking" name="has_parking">
+                                    <label class="form-check-label toggle-switch" for="has_parking">Parking</label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Error alert -->
+                        <div class="alert alert-danger" id="errorAlert" role="alert"></div>
+
+                        <!-- Submit -->
+                        <div class="text-center mt-4">
+                            <button type="submit" class="btn btn-predict">
+                                Calculate Fair Value
+                            </button>
+                        </div>
+
+                        <p class="text-muted text-center mt-2" style="font-size: 0.8rem;">
+                            Leave any field empty to use the dataset average
+                        </p>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Results -->
+        <div class="col-lg-6">
+            <div id="resultSection" style="display:none;">
+                <div class="result-card" id="resultCard">
+                    <p class="mb-1" style="font-size: 1.1rem;">Estimated Fair Value</p>
+                    <div class="price" id="resultPrice">—</div>
+                    <div class="range" id="resultRange">—</div>
+                    <div class="price-m2" id="resultPriceM2">—</div>
+                </div>
+                <div class="defaults-info" id="defaultsInfo" style="display:none;">
+                    <strong>ℹ️ Defaults applied for:</strong>
+                    <span id="defaultsList"></span>
+                </div>
+            </div>
+
+            <!-- Info card (shown initially) -->
+            <div id="infoSection">
+                <div class="card">
+                    <div class="card-header py-3">
+                        <span class="me-2">💡</span> How it works
+                    </div>
+                    <div class="card-body p-4">
+                        <ol class="mb-0">
+                            <li class="mb-2">Enter any combination of property features — size, rooms, bathrooms, floor, district, and amenities.</li>
+                            <li class="mb-2">Fields left empty will use the dataset average, so you can get an estimate with just one or two inputs.</li>
+                            <li class="mb-2">The AI model (Gradient Boosting Regressor) predicts a fair market value based on thousands of Madrid property listings.</li>
+                            <li>You'll see the estimated price, a confidence range, and the price per m².</li>
+                        </ol>
+                        <hr>
+                        <p class="text-muted mb-0" style="font-size: 0.85rem;">
+                            <strong>Data source:</strong> Kaggle "Madrid Real Estate Market" dataset
+                            ({{ "{:,}".format(metrics.n_train + metrics.n_test) if metrics else "N/A" }} listings).
+                            The model achieves a MAPE of {{ metrics.mape if metrics else "N/A" }}%, meaning predictions
+                            are on average within that percentage of the actual selling price.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<footer class="text-center text-muted py-4" style="font-size: 0.8rem;">
+    Madrid Housing Price Predictor · For informational purposes only · Not financial advice
+</footer>
+
+<script>
+document.getElementById("predictForm").addEventListener("submit", async function(e) {
+    e.preventDefault();
+
+    const spinner = document.getElementById("spinner");
+    const errorAlert = document.getElementById("errorAlert");
+    errorAlert.style.display = "none";
+
+    // Collect form data
+    const formData = {};
+    const numericFields = ["size_m2", "rooms", "bathrooms", "floor"];
+    const boolFields = ["has_elevator", "is_exterior", "has_parking"];
+
+    numericFields.forEach(field => {
+        const val = document.getElementById(field).value.trim();
+        if (val !== "") formData[field] = parseFloat(val);
+    });
+
+    boolFields.forEach(field => {
+        formData[field] = document.getElementById(field).checked ? 1 : 0;
+    });
+
+    const district = document.getElementById("district").value;
+    if (district) formData["district"] = district;
+
+    // Need at least size_m2
+    if (Object.keys(formData).filter(k => !boolFields.includes(k)).length === 0) {
+        errorAlert.textContent = "Please enter at least one property detail (e.g. size in m²).";
+        errorAlert.style.display = "block";
+        return;
+    }
+
+    spinner.classList.add("active");
+
+    try {
+        const resp = await fetch("/api/predict", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(formData),
+        });
+
+        const data = await resp.json();
+
+        if (!resp.ok) {
+            throw new Error(data.error || "Prediction failed");
+        }
+
+        // Show results
+        document.getElementById("infoSection").style.display = "none";
+        document.getElementById("resultSection").style.display = "block";
+
+        document.getElementById("resultPrice").textContent =
+            "€" + Math.round(data.predicted_price).toLocaleString("de-DE");
+        document.getElementById("resultRange").textContent =
+            "Range: €" + Math.round(data.price_lower).toLocaleString("de-DE") +
+            " — €" + Math.round(data.price_upper).toLocaleString("de-DE");
+        document.getElementById("resultPriceM2").textContent =
+            "€" + Math.round(data.price_per_m2).toLocaleString("de-DE") + " / m²";
+
+        // Show defaults info
+        if (data.defaults_applied && data.defaults_applied.length > 0) {
+            document.getElementById("defaultsInfo").style.display = "block";
+            document.getElementById("defaultsList").textContent =
+                data.defaults_applied.join(", ");
+        } else {
+            document.getElementById("defaultsInfo").style.display = "none";
+        }
+
+    } catch (err) {
+        errorAlert.textContent = err.message;
+        errorAlert.style.display = "block";
+    } finally {
+        spinner.classList.remove("active");
+    }
+});
+</script>
+
+</body>
+</html>
