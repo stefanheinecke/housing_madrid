@@ -115,6 +115,8 @@ def api_retrain():
         return jsonify({"error": str(e)}), 500
 
 
+# Train model on startup (works for both gunicorn and direct execution)
+ensure_model_ready()
+
 if __name__ == "__main__":
-    ensure_model_ready()
     app.run(debug=True, host="127.0.0.1", port=5000)
