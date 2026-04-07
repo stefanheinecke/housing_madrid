@@ -4,6 +4,7 @@ Flask web application for Madrid Housing Price Predictor.
 
 import os
 import sys
+import threading
 
 # Ensure src/ is importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
@@ -14,19 +15,38 @@ from src.model import ALL_FEATURES, BOOLEAN_FEATURES, NUMERIC_FEATURES, load_mod
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 
+# Track model training state
+_model_ready = threading.Event()
+_training_error = None
 
-def ensure_model_ready():
-    """Train the model if it doesn't exist yet."""
+
+def _train_in_background():
+    """Train the model in a background thread so the app can serve requests immediately."""
+    global _training_error
     from src.model import MODEL_PATH
-    if not os.path.exists(MODEL_PATH):
-        print("No trained model found — training now...")
-        df = load_data()
-        train_model(df)
+    try:
+        if not os.path.exists(MODEL_PATH):
+            print("No trained model found — training now...", flush=True)
+            df = load_data()
+            train_model(df)
+        _model_ready.set()
+        print("✓ Model ready to serve requests", flush=True)
+    except Exception as e:
+        _training_error = str(e)
+        _model_ready.set()  # Unblock waiting requests so they can see the error
+        print(f"✗ Model training failed: {e}", flush=True)
+
+
+@app.route("/health")
+def health():
+    """Health check endpoint for Railway."""
+    return jsonify({"status": "ok", "model_ready": _model_ready.is_set()})
 
 
 @app.route("/")
 def index():
     """Serve the main page."""
+    model_loading = not _model_ready.is_set()
     try:
         _, meta = load_model()
         districts = meta["districts"]
@@ -42,6 +62,8 @@ def index():
         districts=districts,
         defaults=defaults,
         metrics=metrics,
+        model_loading=model_loading,
+        training_error=_training_error,
     )
 
 
@@ -77,6 +99,11 @@ def api_predict():
 
     if not user_input:
         return jsonify({"error": "Provide at least one feature (e.g. size_m2, rooms)"}), 400
+
+    if not _model_ready.is_set():
+        return jsonify({"error": "Model is still training. Please try again in a moment."}), 503
+    if _training_error:
+        return jsonify({"error": f"Model training failed: {_training_error}"}), 503
 
     try:
         result = predict_price(user_input)
@@ -115,8 +142,8 @@ def api_retrain():
         return jsonify({"error": str(e)}), 500
 
 
-# Train model on startup (works for both gunicorn and direct execution)
-ensure_model_ready()
+# Start model training in background thread (non-blocking so the port opens immediately)
+threading.Thread(target=_train_in_background, daemon=True).start()
 
 if __name__ == "__main__":
     app.run(debug=True, host="127.0.0.1", port=5000)
