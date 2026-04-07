@@ -20,6 +20,15 @@ def download_kaggle_dataset() -> str:
     """
     import kagglehub
 
+    # Check that Kaggle credentials are available before attempting download
+    kaggle_username = os.environ.get("KAGGLE_USERNAME") or os.environ.get("KAGGLE_KEY")
+    kaggle_json = os.path.expanduser("~/.kaggle/kaggle.json")
+    if not kaggle_username and not os.path.exists(kaggle_json):
+        raise EnvironmentError(
+            "Kaggle credentials not found. Set KAGGLE_USERNAME and KAGGLE_KEY "
+            "environment variables, or place kaggle.json in ~/.kaggle/"
+        )
+
     path = kagglehub.dataset_download("mirbektoktogaraev/madrid-real-estate-market")
     # The download returns a directory; find the CSV inside
     for root, _dirs, files in os.walk(path):
